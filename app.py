@@ -12,7 +12,15 @@ def patient_list():
         patients=all_patients
     )
 
+@app.route("/")
+def dashboard():
 
+    patient_count = len(patients.get_all_patients())
+
+    return render_template(
+        "dashboard.html",
+        patient_count=patient_count
+    )
 @app.route("/patients/add", methods=["GET", "POST"])
 def add_patient():
 
