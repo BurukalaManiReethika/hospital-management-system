@@ -9,6 +9,14 @@ from hms import doctors
 from hms import patients
 from hms import admissions
 from hms import billing
+@app.route("/billing/pay/<int:id>")
+def pay_bill(id):
+
+    billing.mark_bill_paid(id)
+
+    flash("Payment Successful")
+
+    return redirect(url_for("billing_list"))
 @app.route("/admissions")
 def admission_list():
 
