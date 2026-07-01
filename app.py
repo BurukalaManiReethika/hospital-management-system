@@ -7,6 +7,32 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
 from hms import doctors
 from hms import patients
+
+@app.route("/")
+def dashboard():
+
+    patient_count = len(patients.get_all_patients())
+
+    doctor_count = len(doctors.get_all_doctors())
+
+    appointment_count = len(
+        appointments.get_all_appointments()
+    )
+
+    return render_template(
+        "dashboard.html",
+        patient_count=patient_count,
+        doctor_count=doctor_count,
+        appointment_count=appointment_count
+    )
+if appointments.is_doctor_available(
+    doctor_id,
+    appointment_date,
+    appointment_time
+):
+    appointments.book_appointment(...)
+else:
+    flash("Doctor is already booked for this time.")
 @app.route("/appointments/add", methods=["GET", "POST"])
 def add_appointment():
 
