@@ -22,6 +22,15 @@ def dashboard():
         "dashboard.html",
         patient_count=patient_count
     )
+@app.route("/doctors")
+def doctor_list():
+
+    all_doctors = doctors.get_all_doctors()
+
+    return render_template(
+        "doctors.html",
+        doctors=all_doctors
+    )
 @app.route("/patients/add", methods=["GET", "POST"])
 def add_patient():
 
