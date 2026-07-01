@@ -3,6 +3,7 @@ from flask import Flask, render_template
 from hms.database import initialize_database
 from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
+from hms import doctors
 from hms import patients
 @app.route("/patients")
 def patient_list():
