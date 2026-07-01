@@ -31,6 +31,17 @@ def add_appointment():
         patients=patient_list,
         doctors=doctor_list
     )
+@app.route("/appointments/search")
+def search_appointments():
+
+    keyword = request.args.get("q", "")
+
+    appointment_data = appointments.search_appointments(keyword)
+
+    return render_template(
+        "appointments.html",
+        appointments=appointment_data
+    )
 @app.route("/appointments/cancel/<int:id>")
 def cancel_appointment(id):
 
