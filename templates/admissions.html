@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between mb-4">
+
+<h2>Admissions</h2>
+
+<a href="/admissions/add"
+class="btn btn-success">
+
+Admit Patient
+
+</a>
+
+</div>
+
+<table class="table table-bordered">
+
+<thead class="table-primary">
+
+<tr>
+
+<th>ID</th>
+<th>Patient</th>
+<th>Ward</th>
+<th>Bed</th>
+<th>Status</th>
+<th>Action</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% for admission in admissions %}
+
+<tr>
+
+<td>{{ admission.id }}</td>
+
+<td>{{ admission.patient_name }}</td>
+
+<td>{{ admission.ward }}</td>
+
+<td>{{ admission.bed }}</td>
+
+<td>{{ admission.status }}</td>
+
+<td>
+
+<a
+href="/admissions/discharge/{{ admission.id }}"
+class="btn btn-danger btn-sm">
+
+Discharge
+
+</a>
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+{% endblock %}
