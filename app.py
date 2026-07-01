@@ -7,6 +7,15 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
 from hms import doctors
 from hms import patients
+@app.route("/appointments")
+def appointment_list():
+
+    appointment_data = appointments.get_all_appointments()
+
+    return render_template(
+        "appointments.html",
+        appointments=appointment_data
+    )
 @app.route("/patients")
 def patient_list():
     all_patients = patients.get_all_patients()
