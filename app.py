@@ -39,6 +39,15 @@ def add_admission():
         "add_admission.html",
         patients=patients.get_all_patients()
     )
+@app.route("/billing")
+def billing_list():
+
+    bills = billing.get_all_bills()
+
+    return render_template(
+        "billing.html",
+        bills=bills
+    )
 @app.route("/admissions/discharge/<int:id>")
 def discharge_patient(id):
 
