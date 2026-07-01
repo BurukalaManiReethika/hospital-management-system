@@ -9,9 +9,27 @@
 <a href="/doctors/add" class="btn btn-success">
 
 Add Doctor
+<th>Actions</th>
+</a>
+<td>
+
+<a
+href="/doctors/edit/{{ doctor.id }}"
+class="btn btn-warning btn-sm">
+
+Edit
 
 </a>
 
+<a
+href="/doctors/delete/{{ doctor.id }}"
+class="btn btn-danger btn-sm">
+
+Delete
+
+</a>
+
+</td>
 </div>
 <form action="/doctors/search" method="GET" class="mb-3">
 
