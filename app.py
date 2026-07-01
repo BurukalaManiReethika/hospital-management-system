@@ -18,7 +18,31 @@ def admission_list():
         "admissions.html",
         admissions=data
     )
+@app.route("/billing/create", methods=["GET","POST"])
+def create_bill():
 
+    if request.method == "POST":
+
+        billing.create_bill(
+
+            patient_id=int(request.form["patient"]),
+
+            consultation_fee=float(request.form["consultation"]),
+
+            medicine_fee=float(request.form["medicine"]),
+
+            room_fee=float(request.form["room"])
+
+        )
+
+        flash("Bill created successfully!")
+
+        return redirect(url_for("billing_list"))
+
+    return render_template(
+        "create_bill.html",
+        patients=patients.get_all_patients()
+    )
 
 @app.route("/admissions/add", methods=["GET", "POST"])
 def add_admission():
