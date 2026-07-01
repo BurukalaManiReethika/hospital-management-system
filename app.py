@@ -32,6 +32,28 @@ def dashboard():
         "dashboard.html",
         patient_count=patient_count
     )
+@app.route("/doctors/edit/<int:id>", methods=["GET", "POST"])
+def edit_doctor(id):
+
+    doctor = doctors.get_doctor(id)
+
+    if request.method == "POST":
+
+        doctors.update_doctor(
+            id,
+            request.form["name"],
+            request.form["specialization"],
+            request.form["phone"]
+        )
+
+        flash("Doctor updated successfully!")
+
+        return redirect(url_for("doctor_list"))
+
+    return render_template(
+        "edit_doctor.html",
+        doctor=doctor
+    )
 @app.route("/doctors")
 def doctor_list():
 
