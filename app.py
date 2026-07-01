@@ -1,5 +1,7 @@
 from flask import Flask, render_template
-
+from hms import appointments
+from hms import doctors
+from hms import patients
 from hms.database import initialize_database
 from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
