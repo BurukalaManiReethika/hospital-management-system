@@ -31,6 +31,14 @@ def add_appointment():
         patients=patient_list,
         doctors=doctor_list
     )
+@app.route("/appointments/cancel/<int:id>")
+def cancel_appointment(id):
+
+    appointments.cancel_appointment(id)
+
+    flash("Appointment cancelled.")
+
+    return redirect(url_for("appointment_list"))
 @app.route("/appointments")
 def appointment_list():
 
