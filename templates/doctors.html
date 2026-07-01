@@ -2,92 +2,69 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Doctors</h2>
 
-<h2>Doctors</h2>
-
-<a href="/doctors/add" class="btn btn-success">
-
-Add Doctor
-<th>Actions</th>
-</a>
-<td>
-
-<a
-href="/doctors/edit/{{ doctor.id }}"
-class="btn btn-warning btn-sm">
-
-Edit
-
-</a>
-
-<a
-href="/doctors/delete/{{ doctor.id }}"
-class="btn btn-danger btn-sm">
-
-Delete
-
-</a>
-
-</td>
+    <a href="/doctors/add" class="btn btn-success">
+        Add Doctor
+    </a>
 </div>
+
 <form action="/doctors/search" method="GET" class="mb-3">
-
-<div class="input-group">
-
-<input
-type="text"
-name="q"
-class="form-control"
-placeholder="Search doctor">
-
-<button class="btn btn-primary">
-
-Search
-
-</button>
-
-</div>
-
+    <div class="input-group">
+        <input
+            type="text"
+            name="q"
+            class="form-control"
+            placeholder="Search doctor">
+        <button class="btn btn-primary">
+            Search
+        </button>
+    </div>
 </form>
 
 <table class="table table-bordered table-hover">
 
-<thead class="table-primary">
+    <thead class="table-primary">
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Specialization</th>
+            <th>Phone</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
 
-<tr>
+    <tbody>
 
-<th>ID</th>
+    {% for doctor in doctors %}
 
-<th>Name</th>
+        <tr>
+            <td>{{ doctor.id }}</td>
+            <td>{{ doctor.name }}</td>
+            <td>{{ doctor.specialization }}</td>
+            <td>{{ doctor.phone }}</td>
 
-<th>Specialization</th>
+            <td>
 
-<th>Phone</th>
+                <a href="/doctors/edit/{{ doctor.id }}"
+                   class="btn btn-warning btn-sm">
+                    Edit
+                </a>
 
-</tr>
+                <a href="/doctors/delete/{{ doctor.id }}"
+                   class="btn btn-danger btn-sm"
+                   onclick="return confirm('Delete this doctor?')">
+                    Delete
+                </a>
 
-</thead>
+            </td>
 
-<tbody>
+        </tr>
 
-{% for doctor in doctors %}
+    {% endfor %}
 
-<tr>
-
-<td>{{ doctor.id }}</td>
-
-<td>{{ doctor.name }}</td>
-
-<td>{{ doctor.specialization }}</td>
-
-<td>{{ doctor.phone }}</td>
-
-</tr>
-
-{% endfor %}
-
-</tbody>
+    </tbody>
 
 </table>
 
