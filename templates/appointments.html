@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between mb-4">
+
+<h2>Appointments</h2>
+
+<a href="/appointments/add" class="btn btn-success">
+
+Book Appointment
+
+</a>
+
+</div>
+
+<table class="table table-hover table-bordered">
+
+<thead class="table-primary">
+
+<tr>
+
+<th>ID</th>
+
+<th>Patient</th>
+
+<th>Doctor</th>
+
+<th>Date</th>
+
+<th>Time</th>
+
+<th>Status</th>
+
+<th>Actions</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% for appointment in appointments %}
+
+<tr>
+
+<td>{{ appointment.id }}</td>
+
+<td>{{ appointment.patient_name }}</td>
+
+<td>{{ appointment.doctor_name }}</td>
+
+<td>{{ appointment.date }}</td>
+
+<td>{{ appointment.time }}</td>
+
+<td>{{ appointment.status }}</td>
+
+<td>
+
+<a
+href="/appointments/cancel/{{ appointment.id }}"
+class="btn btn-danger btn-sm">
+
+Cancel
+
+</a>
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+{% endblock %}
