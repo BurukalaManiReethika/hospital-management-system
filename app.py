@@ -7,6 +7,30 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
 from hms import doctors
 from hms import patients
+@app.route("/appointments/add", methods=["GET", "POST"])
+def add_appointment():
+
+    if request.method == "POST":
+
+        appointments.book_appointment(
+            patient_id=int(request.form["patient"]),
+            doctor_id=int(request.form["doctor"]),
+            appointment_date=request.form["date"],
+            appointment_time=request.form["time"]
+        )
+
+        flash("Appointment booked successfully!")
+
+        return redirect(url_for("appointment_list"))
+
+    patient_list = patients.get_all_patients()
+    doctor_list = doctors.get_all_doctors()
+
+    return render_template(
+        "add_appointment.html",
+        patients=patient_list,
+        doctors=doctor_list
+    )
 @app.route("/appointments")
 def appointment_list():
 
