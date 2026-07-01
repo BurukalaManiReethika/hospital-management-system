@@ -41,6 +41,17 @@ def doctor_list():
         "doctors.html",
         doctors=all_doctors
     )
+@app.route("/doctors/search")
+def search_doctors():
+
+    keyword = request.args.get("q", "")
+
+    results = doctors.search_doctors(keyword)
+
+    return render_template(
+        "doctors.html",
+        doctors=results
+    )
 @app.route("/doctors/add", methods=["GET", "POST"])
 def add_doctor():
 
