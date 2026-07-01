@@ -7,6 +7,46 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from hms.database import initialize_database
 from hms import doctors
 from hms import patients
+from hms import admissions
+from hms import billing
+@app.route("/admissions")
+def admission_list():
+
+    data = admissions.get_all_admissions()
+
+    return render_template(
+        "admissions.html",
+        admissions=data
+    )
+
+
+@app.route("/admissions/add", methods=["GET", "POST"])
+def add_admission():
+
+    if request.method == "POST":
+
+        admissions.admit_patient(
+            patient_id=int(request.form["patient"]),
+            bed_number=request.form["bed"],
+            ward=request.form["ward"]
+        )
+
+        flash("Patient admitted successfully!")
+
+        return redirect(url_for("admission_list"))
+
+    return render_template(
+        "add_admission.html",
+        patients=patients.get_all_patients()
+    )
+@app.route("/admissions/discharge/<int:id>")
+def discharge_patient(id):
+
+    admissions.discharge_patient(id)
+
+    flash("Patient discharged successfully!")
+
+    return redirect(url_for("admission_list"))
 
 @app.route("/")
 def dashboard():
