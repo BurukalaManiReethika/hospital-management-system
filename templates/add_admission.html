@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Admit Patient</h2>
+
+<form method="POST">
+
+<label>Patient</label>
+
+<select
+name="patient"
+class="form-select mb-3">
+
+{% for patient in patients %}
+
+<option value="{{ patient.id }}">
+
+{{ patient.name }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+<label>Ward</label>
+
+<input
+name="ward"
+class="form-control mb-3"
+required>
+
+<label>Bed Number</label>
+
+<input
+name="bed"
+class="form-control mb-3"
+required>
+
+<button
+class="btn btn-primary">
+
+Admit Patient
+
+</button>
+
+</form>
+
+{% endblock %}
