@@ -9,6 +9,7 @@ from hms import doctors
 from hms import patients
 from hms import admissions
 from hms import billing
+
 @app.route("/billing/pay/<int:id>")
 def pay_bill(id):
 
@@ -51,6 +52,19 @@ def create_bill():
         "create_bill.html",
         patients=patients.get_all_patients()
     )
+revenue = billing.get_total_revenue()
+
+return render_template(
+    "dashboard.html",
+
+    patient_count=patient_count,
+
+    doctor_count=doctor_count,
+
+    appointment_count=appointment_count,
+
+    revenue=revenue
+)
 
 @app.route("/admissions/add", methods=["GET", "POST"])
 def add_admission():
