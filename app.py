@@ -31,6 +31,22 @@ def doctor_list():
         "doctors.html",
         doctors=all_doctors
     )
+@app.route("/doctors/add", methods=["GET", "POST"])
+def add_doctor():
+
+    if request.method == "POST":
+
+        doctors.add_doctor(
+            name=request.form["name"],
+            specialization=request.form["specialization"],
+            phone=request.form["phone"]
+        )
+
+        flash("Doctor added successfully!")
+
+        return redirect(url_for("doctor_list"))
+
+    return render_template("add_doctor.html")
 @app.route("/patients/add", methods=["GET", "POST"])
 def add_patient():
 
