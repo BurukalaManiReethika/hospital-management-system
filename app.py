@@ -12,6 +12,14 @@ def patient_list():
         "patients.html",
         patients=all_patients
     )
+@app.route("/doctors/delete/<int:id>")
+def delete_doctor(id):
+
+    doctors.delete_doctor(id)
+
+    flash("Doctor deleted successfully!")
+
+    return redirect(url_for("doctor_list"))
 @app.route("/")
 def dashboard():
 
