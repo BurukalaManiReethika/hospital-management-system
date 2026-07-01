@@ -1,0 +1,17 @@
+body{
+    background:#f4f7fb;
+}
+
+.card{
+    border:none;
+    border-radius:15px;
+}
+
+.card:hover{
+    transform:translateY(-5px);
+    transition:.3s;
+}
+
+h1{
+    font-weight:700;
+}
