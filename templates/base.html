@@ -10,28 +10,19 @@
 </head>
 <body>
 
-{% if current_user.is_authenticated %}
 <nav class="topbar">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2" style="max-width:1180px;margin:0 auto;">
-        <a class="brand" href="{{ url_for('dashboard.index') }}">🏥 HMS</a>
+        <a class="brand" href="{{ url_for('dashboard') }}">🏥 HMS</a>
         <div class="d-flex align-items-center gap-1 flex-wrap">
-            <a class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}" href="{{ url_for('dashboard.index') }}">Dashboard</a>
-            <a class="nav-link {% if request.blueprint == 'patients' %}active{% endif %}" href="{{ url_for('patients.patient_list') }}">Patients</a>
-            <a class="nav-link {% if request.blueprint == 'doctors' %}active{% endif %}" href="{{ url_for('doctors.doctor_list') }}">Doctors</a>
-            <a class="nav-link {% if request.blueprint == 'appointments' %}active{% endif %}" href="{{ url_for('appointments.appointment_list') }}">Appointments</a>
-            <a class="nav-link {% if request.blueprint == 'admissions' %}active{% endif %}" href="{{ url_for('admissions.admission_list') }}">Admissions</a>
-            <a class="nav-link {% if request.blueprint == 'billing' %}active{% endif %}" href="{{ url_for('billing.billing_list') }}">Billing</a>
-            {% if current_user.role == 'admin' %}
-            <a class="nav-link {% if request.endpoint in ['auth.user_list','auth.add_user'] %}active{% endif %}" href="{{ url_for('auth.user_list') }}">Users</a>
-            {% endif %}
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="badge-role text-white">{{ current_user.username }} · {{ current_user.role }}</span>
-            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
+            <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a class="nav-link {% if request.endpoint in ['patient_list','add_patient','edit_patient','search_patient'] %}active{% endif %}" href="{{ url_for('patient_list') }}">Patients</a>
+            <a class="nav-link {% if request.endpoint in ['doctor_list','add_doctor','edit_doctor'] %}active{% endif %}" href="{{ url_for('doctor_list') }}">Doctors</a>
+            <a class="nav-link {% if request.endpoint in ['appointment_list','add_appointment','search_appointments'] %}active{% endif %}" href="{{ url_for('appointment_list') }}">Appointments</a>
+            <a class="nav-link {% if request.endpoint in ['admission_list','add_admission'] %}active{% endif %}" href="{{ url_for('admission_list') }}">Admissions</a>
+            <a class="nav-link {% if request.endpoint in ['billing_list','create_bill'] %}active{% endif %}" href="{{ url_for('billing_list') }}">Billing</a>
         </div>
     </div>
 </nav>
-{% endif %}
 
 <div class="page-wrap">
     {% with messages = get_flashed_messages(with_categories=true) %}
