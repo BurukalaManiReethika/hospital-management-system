@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Edit Doctor</h2>
+
+<form method="POST">
+
+<div class="mb-3">
+
+<label>Name</label>
+
+<input
+type="text"
+name="name"
+class="form-control"
+value="{{ doctor.name }}"
+required>
+
+</div>
+
+<div class="mb-3">
+
+<label>Specialization</label>
+
+<input
+type="text"
+name="specialization"
+class="form-control"
+value="{{ doctor.specialization }}"
+required>
+
+</div>
+
+<div class="mb-3">
+
+<label>Phone</label>
+
+<input
+type="text"
+name="phone"
+class="form-control"
+value="{{ doctor.phone }}">
+
+</div>
+
+<button class="btn btn-primary">
+
+Update Doctor
+
+</button>
+
+</form>
+
+{% endblock %}
