@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Create Bill</h2>
+
+<form method="POST">
+
+<div class="mb-3">
+
+<label>Patient</label>
+
+<select
+name="patient"
+class="form-control"
+required>
+
+{% for patient in patients %}
+<option value="{{ patient.id }}">{{ patient.name }}</option>
+{% endfor %}
+
+</select>
+
+</div>
+
+<div class="mb-3">
+
+<label>Consultation Fee</label>
+
+<input
+type="number"
+step="0.01"
+name="consultation"
+class="form-control"
+value="0"
+required>
+
+</div>
+
+<div class="mb-3">
+
+<label>Medicine Fee</label>
+
+<input
+type="number"
+step="0.01"
+name="medicine"
+class="form-control"
+value="0"
+required>
+
+</div>
+
+<div class="mb-3">
+
+<label>Room Fee</label>
+
+<input
+type="number"
+step="0.01"
+name="room"
+class="form-control"
+value="0"
+required>
+
+</div>
+
+<button class="btn btn-primary">
+
+Save Bill
+
+</button>
+
+</form>
+
+{% endblock %}
