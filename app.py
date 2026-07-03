@@ -1,11 +1,25 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 import sqlite3
+import os
+import io
 from datetime import datetime
+
+import qrcode
+
+try:
+    from twilio.rest import Client as TwilioClient
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
 
 app = Flask(__name__)
 app.secret_key = "hospital_secret_key_2026"
 
 DATABASE = "hospital.db"
+
+# Default time (in minutes) a doctor takes per patient, used to estimate
+# how long someone still waiting in the queue can expect to wait.
+DEFAULT_CONSULT_MINUTES = 15
 
 
 # -----------------------------
@@ -43,7 +57,38 @@ def initialize_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         specialization TEXT,
-        phone TEXT
+        phone TEXT,
+        available INTEGER DEFAULT 1,
+        avg_consult_minutes INTEGER DEFAULT 15
+    )
+    """)
+
+    # Live Queue
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS queue(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_number INTEGER NOT NULL,
+        doctor_id INTEGER NOT NULL,
+        patient_id INTEGER,
+        patient_name TEXT NOT NULL,
+        patient_phone TEXT,
+        status TEXT DEFAULT 'Waiting',
+        queue_date TEXT NOT NULL,
+        created_at TEXT,
+        called_at TEXT,
+        completed_at TEXT
+    )
+    """)
+
+    # SMS Notification Log
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS notifications(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        queue_id INTEGER,
+        phone TEXT,
+        message TEXT,
+        status TEXT,
+        created_at TEXT
     )
     """)
 
@@ -91,6 +136,119 @@ def initialize_database():
 initialize_database()
 
 
+# -----------------------------
+# Migrate Older Databases
+# -----------------------------
+def migrate_schema():
+    """Add new columns to a pre-existing doctors table (deployed DBs that
+    were created before availability / queue features existed)."""
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    existing_columns = [
+        row["name"] for row in cursor.execute("PRAGMA table_info(doctors)").fetchall()
+    ]
+
+    if "available" not in existing_columns:
+        cursor.execute("ALTER TABLE doctors ADD COLUMN available INTEGER DEFAULT 1")
+
+    if "avg_consult_minutes" not in existing_columns:
+        cursor.execute(
+            f"ALTER TABLE doctors ADD COLUMN avg_consult_minutes INTEGER DEFAULT {DEFAULT_CONSULT_MINUTES}"
+        )
+
+    conn.commit()
+    conn.close()
+
+
+migrate_schema()
+
+
+# -----------------------------
+# SMS Notifications
+# -----------------------------
+def send_sms(phone, message, queue_id=None):
+    """Send an SMS via Twilio if credentials are configured in the
+    environment, otherwise log the message so it can still be reviewed
+    on the Notifications page. This means the feature works out of the
+    box in demo/dev mode, and starts sending real texts the moment
+    TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER are set."""
+
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    from_number = os.environ.get("TWILIO_FROM_NUMBER")
+
+    status = "simulated"
+
+    if TWILIO_AVAILABLE and account_sid and auth_token and from_number and phone:
+        try:
+            client = TwilioClient(account_sid, auth_token)
+            client.messages.create(body=message, from_=from_number, to=phone)
+            status = "sent"
+        except Exception as error:
+            status = f"failed: {error}"
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO notifications
+        (queue_id, phone, message, status, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        queue_id,
+        phone,
+        message,
+        status,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    conn.commit()
+    conn.close()
+
+    return status
+
+
+# -----------------------------
+# Queue Helpers
+# -----------------------------
+def next_token_number(conn, doctor_id, queue_date):
+    """Tokens restart at 1 each day, per doctor - the usual pattern for a
+    hospital's physical/digital token boards."""
+
+    row = conn.execute("""
+        SELECT COALESCE(MAX(token_number), 0) AS max_token
+        FROM queue
+        WHERE doctor_id = ? AND queue_date = ?
+    """, (doctor_id, queue_date)).fetchone()
+
+    return row["max_token"] + 1
+
+
+def queue_entry_eta(conn, entry):
+    """Estimated minutes until this queue entry is called: number of
+    people still waiting ahead of it, multiplied by that doctor's average
+    consultation time."""
+
+    if entry["status"] != "Waiting":
+        return 0
+
+    ahead = conn.execute("""
+        SELECT COUNT(*) AS c
+        FROM queue
+        WHERE doctor_id = ?
+          AND queue_date = ?
+          AND status = 'Waiting'
+          AND token_number < ?
+    """, (entry["doctor_id"], entry["queue_date"], entry["token_number"])).fetchone()["c"]
+
+    doctor = conn.execute(
+        "SELECT avg_consult_minutes FROM doctors WHERE id=?", (entry["doctor_id"],)
+    ).fetchone()
+
+    consult_minutes = (doctor["avg_consult_minutes"] if doctor and doctor["avg_consult_minutes"] else DEFAULT_CONSULT_MINUTES)
+
+    return ahead * consult_minutes
+
+
 # ======================================
 # Dashboard
 # ======================================
@@ -120,6 +278,17 @@ def dashboard():
         "SELECT IFNULL(SUM(total),0) FROM bills WHERE paid=1"
     ).fetchone()[0]
 
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    waiting_count = conn.execute(
+        "SELECT COUNT(*) FROM queue WHERE queue_date=? AND status='Waiting'",
+        (today,)
+    ).fetchone()[0]
+
+    doctors_available = conn.execute(
+        "SELECT COUNT(*) FROM doctors WHERE available=1"
+    ).fetchone()[0]
+
     conn.close()
 
     return render_template(
@@ -128,7 +297,9 @@ def dashboard():
         doctor_count=doctor_count,
         appointment_count=appointment_count,
         admission_count=admission_count,
-        revenue=revenue
+        revenue=revenue,
+        waiting_count=waiting_count,
+        doctors_available=doctors_available
     )
 # ======================================
 # PATIENT MANAGEMENT
@@ -309,17 +480,19 @@ def add_doctor():
         name = request.form["name"]
         specialization = request.form["specialization"]
         phone = request.form["phone"]
+        avg_consult_minutes = request.form.get("avg_consult_minutes") or DEFAULT_CONSULT_MINUTES
 
         conn = get_connection()
 
         conn.execute("""
             INSERT INTO doctors
-            (name, specialization, phone)
-            VALUES (?, ?, ?)
+            (name, specialization, phone, available, avg_consult_minutes)
+            VALUES (?, ?, ?, 1, ?)
         """, (
             name,
             specialization,
-            phone
+            phone,
+            avg_consult_minutes
         ))
 
         conn.commit()
@@ -355,12 +528,14 @@ def edit_doctor(id):
             SET
                 name=?,
                 specialization=?,
-                phone=?
+                phone=?,
+                avg_consult_minutes=?
             WHERE id=?
         """, (
             request.form["name"],
             request.form["specialization"],
             request.form["phone"],
+            request.form.get("avg_consult_minutes") or DEFAULT_CONSULT_MINUTES,
             id
         ))
 
@@ -424,6 +599,375 @@ def search_doctors():
         "doctors.html",
         doctors=doctors
     )
+
+
+@app.route("/doctors/toggle/<int:id>")
+def toggle_doctor_availability(id):
+
+    conn = get_connection()
+
+    doctor = conn.execute(
+        "SELECT * FROM doctors WHERE id=?", (id,)
+    ).fetchone()
+
+    if doctor is None:
+        conn.close()
+        flash("Doctor not found!", "danger")
+        return redirect(url_for("doctor_list"))
+
+    new_value = 0 if doctor["available"] else 1
+
+    conn.execute(
+        "UPDATE doctors SET available=? WHERE id=?", (new_value, id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash(
+        f"Dr. {doctor['name']} marked as {'Available' if new_value else 'Unavailable'}.",
+        "success"
+    )
+
+    return redirect(url_for("doctor_list"))
+
+
+# ======================================
+# LIVE QUEUE MANAGEMENT
+# ======================================
+
+@app.route("/queue")
+def queue_board():
+
+    conn = get_connection()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    doctors = conn.execute(
+        "SELECT * FROM doctors ORDER BY name"
+    ).fetchall()
+
+    rows = conn.execute("""
+        SELECT queue.*, doctors.name AS doctor_name, doctors.specialization
+        FROM queue
+        JOIN doctors ON queue.doctor_id = doctors.id
+        WHERE queue.queue_date = ?
+          AND queue.status IN ('Waiting', 'In Consultation')
+        ORDER BY queue.doctor_id, queue.token_number
+    """, (today,)).fetchall()
+
+    entries = []
+    for row in rows:
+        entries.append({
+            **dict(row),
+            "eta_minutes": queue_entry_eta(conn, row)
+        })
+
+    conn.close()
+
+    return render_template(
+        "queue.html",
+        entries=entries,
+        doctors=doctors,
+        today=today
+    )
+
+
+@app.route("/queue/data")
+def queue_data():
+    """JSON feed used by the queue board and token status pages to
+    refresh themselves live, without a full page reload."""
+
+    conn = get_connection()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    rows = conn.execute("""
+        SELECT queue.*, doctors.name AS doctor_name, doctors.specialization
+        FROM queue
+        JOIN doctors ON queue.doctor_id = doctors.id
+        WHERE queue.queue_date = ?
+          AND queue.status IN ('Waiting', 'In Consultation')
+        ORDER BY queue.doctor_id, queue.token_number
+    """, (today,)).fetchall()
+
+    entries = []
+    for row in rows:
+        entries.append({
+            "id": row["id"],
+            "token_number": row["token_number"],
+            "doctor_id": row["doctor_id"],
+            "doctor_name": row["doctor_name"],
+            "patient_name": row["patient_name"],
+            "status": row["status"],
+            "eta_minutes": queue_entry_eta(conn, row)
+        })
+
+    conn.close()
+
+    return jsonify(entries=entries)
+
+
+@app.route("/queue/add", methods=["GET", "POST"])
+def add_to_queue():
+
+    conn = get_connection()
+
+    patient_list = conn.execute(
+        "SELECT * FROM patients ORDER BY name"
+    ).fetchall()
+
+    available_doctors = conn.execute(
+        "SELECT * FROM doctors WHERE available=1 ORDER BY name"
+    ).fetchall()
+
+    if request.method == "POST":
+
+        doctor_id = request.form["doctor"]
+        patient_id = request.form.get("patient") or None
+
+        if patient_id:
+            patient = conn.execute(
+                "SELECT * FROM patients WHERE id=?", (patient_id,)
+            ).fetchone()
+            patient_name = patient["name"]
+            patient_phone = patient["phone"]
+        else:
+            patient_name = request.form.get("walkin_name", "").strip()
+            patient_phone = request.form.get("walkin_phone", "").strip()
+
+        if not patient_name:
+            flash("Please select a patient or enter a walk-in name.", "danger")
+            conn.close()
+            return render_template(
+                "add_to_queue.html",
+                patients=patient_list,
+                doctors=available_doctors
+            )
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        token_number = next_token_number(conn, doctor_id, today)
+
+        cursor = conn.execute("""
+            INSERT INTO queue
+            (token_number, doctor_id, patient_id, patient_name, patient_phone,
+             status, queue_date, created_at)
+            VALUES (?, ?, ?, ?, ?, 'Waiting', ?, ?)
+        """, (
+            token_number,
+            doctor_id,
+            patient_id,
+            patient_name,
+            patient_phone,
+            today,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+        queue_id = cursor.lastrowid
+        conn.commit()
+
+        new_entry = conn.execute(
+            "SELECT * FROM queue WHERE id=?", (queue_id,)
+        ).fetchone()
+        eta = queue_entry_eta(conn, new_entry)
+
+        doctor = conn.execute(
+            "SELECT * FROM doctors WHERE id=?", (doctor_id,)
+        ).fetchone()
+
+        conn.close()
+
+        status_link = url_for("token_status", id=queue_id, _external=True)
+
+        send_sms(
+            patient_phone,
+            f"Hi {patient_name}, your token #{token_number} for Dr. {doctor['name']} "
+            f"has been generated. Estimated wait: {eta} min. Track live: {status_link}",
+            queue_id=queue_id
+        )
+
+        flash(f"Added to queue! Token #{token_number} generated.", "success")
+
+        return redirect(url_for("token_status", id=queue_id))
+
+    conn.close()
+
+    return render_template(
+        "add_to_queue.html",
+        patients=patient_list,
+        doctors=available_doctors
+    )
+
+
+@app.route("/queue/token/<int:id>")
+def token_status(id):
+
+    conn = get_connection()
+
+    entry = conn.execute("""
+        SELECT queue.*, doctors.name AS doctor_name, doctors.specialization
+        FROM queue
+        JOIN doctors ON queue.doctor_id = doctors.id
+        WHERE queue.id = ?
+    """, (id,)).fetchone()
+
+    if entry is None:
+        conn.close()
+        flash("Queue token not found!", "danger")
+        return redirect(url_for("queue_board"))
+
+    eta = queue_entry_eta(conn, entry)
+
+    conn.close()
+
+    return render_template(
+        "token_status.html",
+        entry=entry,
+        eta_minutes=eta
+    )
+
+
+@app.route("/queue/status/<int:id>")
+def token_status_data(id):
+    """JSON feed for the public token page to poll live."""
+
+    conn = get_connection()
+
+    entry = conn.execute(
+        "SELECT * FROM queue WHERE id=?", (id,)
+    ).fetchone()
+
+    if entry is None:
+        conn.close()
+        return jsonify(error="not_found"), 404
+
+    eta = queue_entry_eta(conn, entry)
+
+    conn.close()
+
+    return jsonify(
+        status=entry["status"],
+        token_number=entry["token_number"],
+        eta_minutes=eta
+    )
+
+
+@app.route("/queue/qr/<int:id>.png")
+def queue_qr(id):
+    """Generates a QR code on the fly (nothing saved to disk) that
+    encodes a link to this token's live public status page."""
+
+    link = url_for("token_status", id=id, _external=True)
+
+    img = qrcode.make(link)
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return send_file(buffer, mimetype="image/png")
+
+
+@app.route("/queue/call_next/<int:doctor_id>")
+def call_next(doctor_id):
+
+    conn = get_connection()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    next_entry = conn.execute("""
+        SELECT * FROM queue
+        WHERE doctor_id=? AND queue_date=? AND status='Waiting'
+        ORDER BY token_number
+        LIMIT 1
+    """, (doctor_id, today)).fetchone()
+
+    if next_entry is None:
+        conn.close()
+        flash("No one is waiting in this doctor's queue.", "warning")
+        return redirect(url_for("queue_board"))
+
+    conn.execute("""
+        UPDATE queue
+        SET status='In Consultation', called_at=?
+        WHERE id=?
+    """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), next_entry["id"]))
+
+    conn.commit()
+
+    doctor = conn.execute(
+        "SELECT * FROM doctors WHERE id=?", (doctor_id,)
+    ).fetchone()
+
+    conn.close()
+
+    send_sms(
+        next_entry["patient_phone"],
+        f"Token #{next_entry['token_number']}: please proceed to Dr. {doctor['name']}'s room now.",
+        queue_id=next_entry["id"]
+    )
+
+    flash(f"Called token #{next_entry['token_number']} ({next_entry['patient_name']}).", "success")
+
+    return redirect(url_for("queue_board"))
+
+
+@app.route("/queue/complete/<int:id>")
+def complete_queue_entry(id):
+
+    conn = get_connection()
+
+    conn.execute("""
+        UPDATE queue
+        SET status='Completed', completed_at=?
+        WHERE id=?
+    """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), id))
+
+    conn.commit()
+    conn.close()
+
+    flash("Consultation marked as completed.", "success")
+
+    return redirect(url_for("queue_board"))
+
+
+@app.route("/queue/cancel/<int:id>")
+def cancel_queue_entry(id):
+
+    conn = get_connection()
+
+    conn.execute("""
+        UPDATE queue
+        SET status='Cancelled'
+        WHERE id=?
+    """, (id,))
+
+    conn.commit()
+    conn.close()
+
+    flash("Queue token cancelled.", "warning")
+
+    return redirect(url_for("queue_board"))
+
+
+@app.route("/notifications")
+def notifications_log():
+
+    conn = get_connection()
+
+    logs = conn.execute("""
+        SELECT notifications.*, queue.token_number, queue.patient_name
+        FROM notifications
+        LEFT JOIN queue ON notifications.queue_id = queue.id
+        ORDER BY notifications.id DESC
+        LIMIT 100
+    """).fetchall()
+
+    conn.close()
+
+    return render_template("notifications.html", logs=logs)
+
+
 # ======================================
 # APPOINTMENT MANAGEMENT
 # ======================================
