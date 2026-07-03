@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -17,9 +17,11 @@
             <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
             <a class="nav-link {% if request.endpoint in ['patient_list','add_patient','edit_patient','search_patient'] %}active{% endif %}" href="{{ url_for('patient_list') }}">Patients</a>
             <a class="nav-link {% if request.endpoint in ['doctor_list','add_doctor','edit_doctor'] %}active{% endif %}" href="{{ url_for('doctor_list') }}">Doctors</a>
+            <a class="nav-link {% if request.endpoint in ['queue_board','add_to_queue','token_status'] %}active{% endif %}" href="{{ url_for('queue_board') }}">🔴 Live Queue</a>
             <a class="nav-link {% if request.endpoint in ['appointment_list','add_appointment','search_appointments'] %}active{% endif %}" href="{{ url_for('appointment_list') }}">Appointments</a>
             <a class="nav-link {% if request.endpoint in ['admission_list','add_admission'] %}active{% endif %}" href="{{ url_for('admission_list') }}">Admissions</a>
             <a class="nav-link {% if request.endpoint in ['billing_list','create_bill'] %}active{% endif %}" href="{{ url_for('billing_list') }}">Billing</a>
+            <a class="nav-link {% if request.endpoint == 'notifications_log' %}active{% endif %}" href="{{ url_for('notifications_log') }}">SMS Log</a>
         </div>
     </div>
 </nav>
