@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2 class="mb-3">Add Medical Record — {{ patient.name }}</h2>
+
+<form method="POST" class="col-md-8">
+
+<div class="mb-3">
+<label class="form-label">Visit Date</label>
+<input type="date" name="visit_date" class="form-control" value="{{ today }}" required>
+</div>
+
+<div class="mb-3">
+<label class="form-label">Attending Doctor</label>
+<select name="doctor" class="form-select">
+<option value="">-- Not specified --</option>
+{% for doctor in doctors %}
+<option value="{{ doctor.id }}">{{ doctor.name }} ({{ doctor.specialization }})</option>
+{% endfor %}
+</select>
+</div>
+
+<div class="mb-3">
+<label class="form-label">Diagnosis</label>
+<input type="text" name="diagnosis" class="form-control" placeholder="e.g. Seasonal flu">
+</div>
+
+<div class="mb-3">
+<label class="form-label">Prescription</label>
+<textarea name="prescription" class="form-control" rows="4" placeholder="Medicine name, dosage, duration..."></textarea>
+</div>
+
+<div class="mb-3">
+<label class="form-label">Notes</label>
+<textarea name="notes" class="form-control" rows="3" placeholder="Additional notes for future visits"></textarea>
+</div>
+
+<button type="submit" class="btn btn-success">Save Record</button>
+<a href="{{ url_for('patient_detail', id=patient.id) }}" class="btn btn-secondary">Cancel</a>
+
+</form>
+
+{% endblock %}
