@@ -71,11 +71,96 @@ Manage Patients, Doctors, Live Queue, Appointments and Billing
 <div class="card shadow">
 <div class="card-body text-center">
 <h5>Revenue</h5>
-<h2>₹{{ "%.0f"|format(revenue) }}</h2>
+<h2>&#8377;{{ "%.0f"|format(revenue) }}</h2>
 </div>
 </div>
 </div>
 
 </div>
 
+<div class="row mt-5 g-4">
+
+<div class="col-md-6">
+<div class="card shadow">
+<div class="card-body">
+<h5 class="card-title">Revenue: Paid vs Unpaid</h5>
+<canvas id="revenueChart" height="200"></canvas>
+</div>
+</div>
+</div>
+
+<div class="col-md-6">
+<div class="card shadow">
+<div class="card-body">
+<h5 class="card-title">Appointments by Status</h5>
+<canvas id="appointmentChart" height="200"></canvas>
+</div>
+</div>
+</div>
+
+<div class="col-md-6">
+<div class="card shadow">
+<div class="card-body">
+<h5 class="card-title">Today's Queue Status</h5>
+<canvas id="queueChart" height="200"></canvas>
+</div>
+</div>
+</div>
+
+<div class="col-md-6">
+<div class="card shadow">
+<div class="card-body">
+<h5 class="card-title">Admissions: Current vs Discharged</h5>
+<canvas id="admissionChart" height="200"></canvas>
+</div>
+</div>
+</div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+fetch("{{ url_for('dashboard_stats') }}")
+    .then(res => res.json())
+    .then(data => {
+        const palette = ["#2f6fed", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4"];
+
+        new Chart(document.getElementById("revenueChart"), {
+            type: "doughnut",
+            data: {
+                labels: data.revenue_by_status.map(r => r.label),
+                datasets: [{ data: data.revenue_by_status.map(r => r.amount), backgroundColor: palette }]
+            }
+        });
+
+        new Chart(document.getElementById("appointmentChart"), {
+            type: "bar",
+            data: {
+                labels: data.appointment_status.map(r => r.label),
+                datasets: [{ label: "Appointments", data: data.appointment_status.map(r => r.count), backgroundColor: palette }]
+            },
+            options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+
+        new Chart(document.getElementById("queueChart"), {
+            type: "pie",
+            data: {
+                labels: data.queue_status.map(r => r.label),
+                datasets: [{ data: data.queue_status.map(r => r.count), backgroundColor: palette }]
+            }
+        });
+
+        new Chart(document.getElementById("admissionChart"), {
+            type: "doughnut",
+            data: {
+                labels: data.admissions_status.map(r => r.label),
+                datasets: [{ data: data.admissions_status.map(r => r.count), backgroundColor: palette }]
+            }
+        });
+    })
+    .catch(err => console.error("Failed to load dashboard stats:", err));
+</script>
 {% endblock %}
