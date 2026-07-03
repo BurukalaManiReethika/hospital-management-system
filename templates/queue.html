@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <h2>🔴 Live Queue &mdash; {{ today }}</h2>
+
+    <div class="d-flex align-items-center gap-2">
+        <span class="text-muted small" id="last-updated">Updating live&hellip;</span>
+        <a href="{{ url_for('add_to_queue') }}" class="btn btn-success">
+            + Add to Queue
+        </a>
+    </div>
+</div>
+
+{% if doctors|length == 0 %}
+    <div class="empty-state">
+        <div class="emoji">🩺</div>
+        <p>No doctors yet. Add a doctor first.</p>
+    </div>
+{% else %}
+
+{% for doctor in doctors %}
+    {% set doctor_entries = entries|selectattr("doctor_id", "equalto", doctor.id)|list %}
+
+    <div class="card-surface p-3 mb-4">
+
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+                <strong>Dr. {{ doctor.name }}</strong>
+                <span class="text-muted">({{ doctor.specialization }})</span>
+                {% if doctor.available %}
+                    <span class="pill pill-completed ms-2">Available</span>
+                {% else %}
+                    <span class="pill pill-cancelled ms-2">Unavailable</span>
+                {% endif %}
+            </div>
+
+            {% if doctor_entries|selectattr("status", "equalto", "Waiting")|list|length > 0 %}
+                <a href="{{ url_for('call_next', doctor_id=doctor.id) }}" class="btn btn-primary btn-sm">
+                    Call Next Patient
+                </a>
+            {% endif %}
+        </div>
+
+        {% if doctor_entries|length == 0 %}
+            <p class="text-muted mb-0">No one in this queue right now.</p>
+        {% else %}
+            <table class="table table-modern mb-0" data-doctor-table="{{ doctor.id }}">
+                <thead>
+                    <tr>
+                        <th>Token</th>
+                        <th>Patient</th>
+                        <th>Status</th>
+                        <th>Est. Wait</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in doctor_entries %}
+                        <tr data-queue-id="{{ entry.id }}">
+                            <td><strong>#{{ entry.token_number }}</strong></td>
+                            <td>
+                                <a href="{{ url_for('token_status', id=entry.id) }}">{{ entry.patient_name }}</a>
+                            </td>
+                            <td data-field="status">
+                                {% if entry.status == "Waiting" %}
+                                    <span class="pill pill-booked">Waiting</span>
+                                {% else %}
+                                    <span class="pill pill-paid">In Consultation</span>
+                                {% endif %}
+                            </td>
+                            <td data-field="eta">
+                                {% if entry.status == "Waiting" %}
+                                    ~{{ entry.eta_minutes }} min
+                                {% else %}
+                                    Now serving
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if entry.status == "In Consultation" %}
+                                    <a href="{{ url_for('complete_queue_entry', id=entry.id) }}" class="btn btn-success btn-sm">Complete</a>
+                                {% endif %}
+                                <a href="{{ url_for('cancel_queue_entry', id=entry.id) }}" class="btn btn-danger btn-sm" onclick="return confirm('Cancel this token?')">Cancel</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+    </div>
+{% endfor %}
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Live refresh: poll /queue/data every 8s and patch status/ETA cells in place
+// (no full page reload, so "Call Next" clicks etc. aren't disrupted).
+async function refreshQueue() {
+    try {
+        const res = await fetch("{{ url_for('queue_data') }}");
+        const data = await res.json();
+
+        data.entries.forEach(entry => {
+            const row = document.querySelector(`tr[data-queue-id="${entry.id}"]`);
+            if (!row) return;
+
+            const statusCell = row.querySelector('[data-field="status"]');
+            const etaCell = row.querySelector('[data-field="eta"]');
+
+            if (statusCell) {
+                statusCell.innerHTML = entry.status === "Waiting"
+                    ? '<span class="pill pill-booked">Waiting</span>'
+                    : '<span class="pill pill-paid">In Consultation</span>';
+            }
+            if (etaCell) {
+                etaCell.textContent = entry.status === "Waiting"
+                    ? `~${entry.eta_minutes} min`
+                    : "Now serving";
+            }
+        });
+
+        document.getElementById("last-updated").textContent =
+            "Last updated " + new Date().toLocaleTimeString();
+    } catch (err) {
+        console.error("Queue refresh failed", err);
+    }
+}
+
+setInterval(refreshQueue, 8000);
+refreshQueue();
+</script>
+{% endblock %}
