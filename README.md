@@ -27,7 +27,36 @@ patient queue** with QR tokens and SMS notifications.
 - **Appointment scheduling** — book appointments with double-booking
   prevention for the same doctor/date/time
 - **Admissions** — track bed/ward assignment and discharge
-- **Billing** — create bills (consultation + medicine + room fees), mark paid
+- **Billing** — create bills (consultation + medicine + room fees), mark paid,
+  and download a **PDF invoice** per bill or a full **PDF billing report**
+- **Login & role-based access** — admin / doctor / receptionist accounts.
+  Admins manage doctors and users; receptionists handle patients,
+  appointments and billing; doctors can add medical records. A default
+  admin account is seeded on first run (see below)
+- **Patient medical history & prescriptions** — each patient has a profile
+  page (`/patients/<id>`) showing past visits, diagnoses, prescriptions,
+  appointments and bills in one place, with search on the patients list
+- **Dashboard analytics** — charts for revenue (paid vs unpaid),
+  appointment status breakdown, today's queue status, and admissions,
+  backed by a small JSON API (`/api/dashboard/stats`)
+
+## Logging in
+
+A default admin account is created automatically the first time the app
+runs:
+
+```
+username: admin
+password: admin123
+```
+
+Change these before deploying publicly by setting `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` as environment variables (only takes effect on a fresh
+database — it won't overwrite an existing admin user). Also set a real
+`SECRET_KEY` env var in production; it defaults to a fixed dev value
+otherwise. Once logged in as admin, create additional accounts under
+**Users → Add User** and assign each the `admin`, `doctor`, or
+`receptionist` role.
 
 ## Project structure
 
@@ -45,7 +74,18 @@ hospital-management-system/
 The app uses raw `sqlite3` (no ORM) against a single `hospital.db` file
 that's created automatically on first run, with a small migration step
 that adds new columns to older databases (e.g. deployments that predate
-the queue feature) without wiping existing data.
+the queue feature) without wiping existing data. `app.py` is
+self-contained — routes, auth, PDF export and all.
+
+> **Note:** `auth.py`, `models.py`, `decorators.py`, `extensions.py`,
+> `config.py`, `dashboard.py`, `patients.py`, `doctors.py`,
+> `appointments.py`, `billing.py`, and `admission.py` are an earlier,
+> unfinished Flask-SQLAlchemy/Flask-Login scaffold that isn't imported by
+> `app.py` and isn't in `requirements.txt`. The login/roles feature
+> described below was implemented directly in `app.py` using the same
+> `sqlite3` style as the rest of the app instead, to keep one consistent
+> architecture. You can safely delete those files, or finish wiring them
+> up yourself if you'd rather move to SQLAlchemy.
 
 ## Getting started
 
