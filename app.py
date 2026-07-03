@@ -26,8 +26,16 @@ DEFAULT_CONSULT_MINUTES = 15
 # Database Connection
 # -----------------------------
 def get_connection():
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE, timeout=10)
     conn.row_factory = sqlite3.Row
+    # The live queue does frequent small writes (call next, complete,
+    # SMS log inserts) alongside reads from the queue board polling
+    # every few seconds. WAL mode lets reads proceed while a write is
+    # in progress instead of raising "database is locked", and the
+    # busy_timeout makes concurrent writers wait briefly instead of
+    # failing immediately.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -151,12 +159,18 @@ def migrate_schema():
     ]
 
     if "available" not in existing_columns:
-        cursor.execute("ALTER TABLE doctors ADD COLUMN available INTEGER DEFAULT 1")
+        try:
+            cursor.execute("ALTER TABLE doctors ADD COLUMN available INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass  # another worker process already added it
 
     if "avg_consult_minutes" not in existing_columns:
-        cursor.execute(
-            f"ALTER TABLE doctors ADD COLUMN avg_consult_minutes INTEGER DEFAULT {DEFAULT_CONSULT_MINUTES}"
-        )
+        try:
+            cursor.execute(
+                f"ALTER TABLE doctors ADD COLUMN avg_consult_minutes INTEGER DEFAULT {DEFAULT_CONSULT_MINUTES}"
+            )
+        except sqlite3.OperationalError:
+            pass  # another worker process already added it
 
     conn.commit()
     conn.close()
