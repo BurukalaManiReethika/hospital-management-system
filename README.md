@@ -1,109 +1,112 @@
 # Hospital Management System
 
-A command-line Hospital Management System built in pure Python with SQLite —
-no external database server or framework required. Designed as a clean,
-well-tested reference implementation covering the core workflows a small
-clinic or hospital needs.
+A Flask + SQLite web app for running a small clinic or hospital's front
+desk: patients, doctors, appointments, admissions, billing, and a **live
+patient queue** with QR tokens and SMS notifications.
 
 ## Features
 
-- **Patient management** — register, search, update, and remove patient records
-- **Doctor management** — add doctors, track specializations and availability
-- **Appointment scheduling** — book appointments with automatic double-booking
-  prevention (checks the doctor's schedule for conflicts) and past-date validation
-- **Bed & admission tracking** — manage ward/bed inventory, admit and discharge
-  patients, and prevent double-assignment of an occupied bed
-- **Billing** — create bills tied to patients, appointments, or admissions;
-  track paid/unpaid status and outstanding balances
+- **Patient management** — register, search, edit, and remove patient records
+- **Doctor management** — add doctors, track specialization, and toggle
+  live **availability** (Available / Unavailable)
+- **Live queue tracking** — walk-in or existing patients get a numbered
+  token per doctor per day; the queue board (`/queue`) auto-refreshes
+  every few seconds so staff can see who's waiting, who's in with the
+  doctor, and estimated wait times without reloading the page
+- **QR token generation** — every token gets a QR code (generated on the
+  fly, nothing saved to disk) that links to a public, no-login status
+  page the patient can bookmark or scan to check their place in line
+- **SMS notifications** — patients get a text when their token is
+  created and when they're called in. Works out of the box in
+  **simulated mode** (messages are logged and viewable on `/notifications`)
+  and switches to real SMS automatically once Twilio credentials are set
+  (see below)
+- **Estimated waiting time** — computed from the number of people still
+  waiting ahead of you for that doctor, multiplied by that doctor's
+  average consultation time (configurable per doctor)
+- **Appointment scheduling** — book appointments with double-booking
+  prevention for the same doctor/date/time
+- **Admissions** — track bed/ward assignment and discharge
+- **Billing** — create bills (consultation + medicine + room fees), mark paid
 
 ## Project structure
 
 ```
 hospital-management-system/
-├── hms/
-│   ├── __init__.py
-│   ├── database.py       # SQLite connection + schema
-│   ├── exceptions.py     # Custom exception types
-│   ├── patients.py        # Patient CRUD
-│   ├── doctors.py         # Doctor & department management
-│   ├── appointments.py    # Appointment scheduling logic
-│   ├── admissions.py      # Bed inventory + admit/discharge
-│   ├── billing.py         # Billing & payments
-│   └── cli.py              # Interactive CLI entry point
-├── tests/
-│   └── test_hms.py         # pytest suite (22 tests)
-├── seed_demo_data.py       # Populates sample data for a quick demo
+├── app.py              # All routes, DB setup/migration, SMS + queue logic
+├── templates/           # Jinja2 templates (Bootstrap 5)
+├── static/
+│   ├── css/style.css
+│   └── js/app.js
 ├── requirements.txt
-├── LICENSE
-└── README.md
+└── render.yaml           # Render.com deploy config
 ```
+
+The app uses raw `sqlite3` (no ORM) against a single `hospital.db` file
+that's created automatically on first run, with a small migration step
+that adds new columns to older databases (e.g. deployments that predate
+the queue feature) without wiping existing data.
 
 ## Getting started
 
 **Requirements:** Python 3.10+
 
 ```bash
-# Clone the repo
 git clone https://github.com/<your-username>/hospital-management-system.git
 cd hospital-management-system
 
-# (optional) create a virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# install dev/test dependencies
 pip install -r requirements.txt
+
+python3 app.py
 ```
 
-### Run the interactive CLI
+The app runs at `http://localhost:5000`. `hospital.db` is created
+automatically on first request.
 
-```bash
-python3 -m hms.cli
+## Enabling real SMS (optional)
+
+Without any configuration, "sending" an SMS just logs the message to the
+`notifications` table, viewable on the **SMS Log** page — handy for demos
+and local dev without a Twilio account.
+
+To send real texts, set these environment variables (e.g. in Render's
+dashboard, or a local `.env` loaded before `app.py` starts):
+
+```
+TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_FROM_NUMBER=+1XXXXXXXXXX
 ```
 
-This initializes a local SQLite database at `data/hospital.db` on first run
-and drops you into a menu-driven interface for registering patients, booking
-appointments, admitting patients, and managing bills.
+No code changes needed — `send_sms()` in `app.py` detects the credentials
+and switches from simulated to real sends automatically.
 
-### Load demo data
+## How the live queue works
 
-```bash
-python3 seed_demo_data.py
-```
+1. A receptionist opens **Live Queue → Add to Queue**, picks a doctor
+   (only doctors marked *Available* are selectable) and either an
+   existing patient or a walk-in name/phone.
+2. A token number is generated (numbering restarts at 1 each day, per
+   doctor) and an SMS is sent with the token number, estimated wait, and
+   a link to the live status page.
+3. The patient can open that link (or scan the QR code shown on the
+   staff-facing token page) to see their status update live — no login,
+   no app install.
+4. Staff use **Call Next Patient** on the queue board to advance the
+   queue; the patient gets a "please proceed to the doctor's room" text,
+   and everyone still waiting sees their estimated wait shrink
+   automatically.
 
-Seeds a few patients, doctors, appointments, an admission, and some bills so
-you can explore the CLI immediately instead of starting from an empty database.
+## Deploying
 
-### Run the tests
-
-```bash
-python3 -m pytest tests/ -v
-```
-
-## Design notes
-
-- **SQLite with foreign keys enforced** — zero setup, but real relational
-  integrity (`PRAGMA foreign_keys = ON`), cascading deletes where appropriate.
-- **Business rules live in the service layer, not the UI** — `hms/appointments.py`,
-  `hms/admissions.py`, etc. raise typed exceptions (`ConflictError`,
-  `ValidationError`, `NotFoundError`) that the CLI (or any other frontend you
-  bolt on later — a REST API, a GUI) can catch and handle consistently.
-- **Double-booking prevention** — appointments are checked against a
-  30-minute window around the requested slot for the same doctor.
-- **Bed occupancy is transactional** — admitting/discharging a patient updates
-  the bed's `is_occupied` flag in the same connection as the admission record,
-  so the two can't drift out of sync.
-
-## Extending this project
-
-Some natural next steps if you want to build on this:
-
-- Wrap the `hms` package in a REST API (FastAPI/Flask) for a web frontend
-- Add role-based authentication (admin, doctor, receptionist)
-- Add a prescriptions / medication tracking module
-- Export bills/reports to PDF
-- Swap SQLite for PostgreSQL for multi-user concurrent access
+`render.yaml` is already set up for [Render](https://render.com):
+it installs `requirements.txt` and runs `gunicorn app:app`. Add the
+Twilio environment variables above in the Render dashboard if you want
+real SMS in production.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE) if present, or the repository's license terms.
