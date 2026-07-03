@@ -12,76 +12,68 @@ Hospital Management System
 
 <p class="lead">
 
-Manage Patients, Doctors, Appointments and Billing
+Manage Patients, Doctors, Live Queue, Appointments and Billing
 
 </p>
 
 </div>
 
-<div class="row mt-5">
+<div class="row mt-5 g-3">
 
-<div class="col-md-3">
-
+<div class="col-md-2">
 <div class="card shadow">
-
 <div class="card-body text-center">
-
 <h5>Patients</h5>
-
-<h2>0</h2>
-
+<h2>{{ patient_count }}</h2>
+</div>
+</div>
 </div>
 
-</div>
-
-</div>
-
-<div class="col-md-3">
-
+<div class="col-md-2">
 <div class="card shadow">
-
 <div class="card-body text-center">
-
 <h5>Doctors</h5>
-
-<h2>0</h2>
-
+<h2>{{ doctor_count }}</h2>
+<small class="text-muted">{{ doctors_available }} available</small>
+</div>
+</div>
 </div>
 
-</div>
-
-</div>
-
-<div class="col-md-3">
-
-<div class="card shadow">
-
+<div class="col-md-2">
+<div class="card shadow border-danger">
 <div class="card-body text-center">
+<h5>Waiting Now</h5>
+<h2>{{ waiting_count }}</h2>
+<a href="{{ url_for('queue_board') }}" class="small">View Queue &rarr;</a>
+</div>
+</div>
+</div>
 
+<div class="col-md-2">
+<div class="card shadow">
+<div class="card-body text-center">
 <h5>Appointments</h5>
-
-<h2>0</h2>
-
+<h2>{{ appointment_count }}</h2>
+</div>
+</div>
 </div>
 
-</div>
-
-</div>
-
-<div class="col-md-3">
-
+<div class="col-md-2">
 <div class="card shadow">
-
 <div class="card-body text-center">
+<h5>Admissions</h5>
+<h2>{{ admission_count }}</h2>
+</div>
+</div>
+</div>
 
+<div class="col-md-2">
+<div class="card shadow">
+<div class="card-body text-center">
 <h5>Revenue</h5>
-
-<h2>₹0</h2>
-
+<h2>₹{{ "%.0f"|format(revenue) }}</h2>
 </div>
-
 </div>
-
 </div>
 
 </div>
