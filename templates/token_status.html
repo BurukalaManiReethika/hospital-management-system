@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="form-card text-center" id="token-card">
+
+    <h5 class="text-muted mb-1">Your Queue Token</h5>
+    <h1 class="display-3 fw-bold" data-field="token">#{{ entry.token_number }}</h1>
+
+    <p class="lead mb-1">Dr. {{ entry.doctor_name }} &mdash; {{ entry.specialization }}</p>
+    <p class="text-muted mb-4">{{ entry.patient_name }}</p>
+
+    <div class="mb-4" data-field="status-block">
+        {% if entry.status == "Waiting" %}
+            <span class="pill pill-booked fs-6">Waiting</span>
+            <p class="mt-2 mb-0">Estimated wait: <strong data-field="eta">{{ eta_minutes }}</strong> minutes</p>
+        {% elif entry.status == "In Consultation" %}
+            <span class="pill pill-paid fs-6">In Consultation</span>
+            <p class="mt-2 mb-0">Please proceed to the doctor's room now.</p>
+        {% elif entry.status == "Completed" %}
+            <span class="pill pill-completed fs-6">Completed</span>
+            <p class="mt-2 mb-0">Thank you for visiting!</p>
+        {% else %}
+            <span class="pill pill-cancelled fs-6">Cancelled</span>
+        {% endif %}
+    </div>
+
+    <img src="{{ url_for('queue_qr', id=entry.id) }}" alt="QR code for this token" width="160" height="160" class="mb-2">
+    <p class="text-muted small mb-0">Scan to reopen this live status page</p>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Poll every 5s so the patient sees their position update live without
+// refreshing the page (and without needing an account or app).
+async function refreshStatus() {
+    try {
+        const res = await fetch("{{ url_for('token_status_data', id=entry.id) }}");
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const statusBlock = document.querySelector('[data-field="status-block"]');
+        if (!statusBlock) return;
+
+        if (data.status === "Waiting") {
+            statusBlock.innerHTML = `
+                <span class="pill pill-booked fs-6">Waiting</span>
+                <p class="mt-2 mb-0">Estimated wait: <strong>${data.eta_minutes}</strong> minutes</p>`;
+        } else if (data.status === "In Consultation") {
+            statusBlock.innerHTML = `
+                <span class="pill pill-paid fs-6">In Consultation</span>
+                <p class="mt-2 mb-0">Please proceed to the doctor's room now.</p>`;
+        } else if (data.status === "Completed") {
+            statusBlock.innerHTML = `
+                <span class="pill pill-completed fs-6">Completed</span>
+                <p class="mt-2 mb-0">Thank you for visiting!</p>`;
+        } else {
+            statusBlock.innerHTML = `<span class="pill pill-cancelled fs-6">Cancelled</span>`;
+        }
+    } catch (err) {
+        console.error("Status refresh failed", err);
+    }
+}
+
+setInterval(refreshStatus, 5000);
+</script>
+{% endblock %}
