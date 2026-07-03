@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2 class="mb-3">SMS Notification Log</h2>
+
+<p class="text-muted">
+    Messages show as <span class="pill pill-cancelled">simulated</span> until Twilio credentials
+    (<code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_FROM_NUMBER</code>)
+    are configured as environment variables &mdash; real texts will start sending automatically once set.
+</p>
+
+{% if logs|length == 0 %}
+    <div class="empty-state">
+        <div class="emoji">📭</div>
+        <p>No notifications sent yet.</p>
+    </div>
+{% else %}
+
+<table class="table table-modern">
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Token</th>
+            <th>Patient</th>
+            <th>Phone</th>
+            <th>Message</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for log in logs %}
+            <tr>
+                <td>{{ log.created_at }}</td>
+                <td>{{ '#' ~ log.token_number if log.token_number else '-' }}</td>
+                <td>{{ log.patient_name or '-' }}</td>
+                <td>{{ log.phone or '-' }}</td>
+                <td>{{ log.message }}</td>
+                <td>
+                    {% if log.status == 'sent' %}
+                        <span class="pill pill-completed">Sent</span>
+                    {% elif log.status == 'simulated' %}
+                        <span class="pill pill-booked">Simulated</span>
+                    {% else %}
+                        <span class="pill pill-cancelled">Failed</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% endif %}
+
+{% endblock %}
