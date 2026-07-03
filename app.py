@@ -1,10 +1,12 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, g
 import sqlite3
 import os
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import wraps
 
 import qrcode
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     from twilio.rest import Client as TwilioClient
@@ -12,10 +14,24 @@ try:
 except ImportError:
     TWILIO_AVAILABLE = False
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
 app = Flask(__name__)
-app.secret_key = "hospital_secret_key_2026"
+app.secret_key = os.environ.get("SECRET_KEY", "hospital_secret_key_2026")
 
 DATABASE = "hospital.db"
+
+# Default admin account, seeded on first run if the users table is empty.
+# Override via environment variables in production.
+DEFAULT_ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+# Roles, in order of privilege. "admin" is always allowed everywhere.
+ROLES = ["admin", "doctor", "receptionist"]
 
 # Default time (in minutes) a doctor takes per patient, used to estimate
 # how long someone still waiting in the queue can expect to wait.
@@ -137,11 +153,63 @@ def initialize_database():
     )
     """)
 
+    # Users (login accounts)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'receptionist',
+        created_at TEXT
+    )
+    """)
+
+    # Medical Records / Prescriptions
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS medical_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL,
+        doctor_id INTEGER,
+        visit_date TEXT NOT NULL,
+        diagnosis TEXT,
+        prescription TEXT,
+        notes TEXT,
+        created_by TEXT,
+        created_at TEXT
+    )
+    """)
+
     conn.commit()
     conn.close()
 
 
 initialize_database()
+
+
+def seed_default_admin():
+    """Create a default admin account the first time the app runs, so
+    there's always a way in. Change ADMIN_USERNAME / ADMIN_PASSWORD in
+    production instead of relying on the default."""
+
+    conn = get_connection()
+
+    existing = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+    if existing == 0:
+        conn.execute("""
+            INSERT INTO users (username, password_hash, role, created_at)
+            VALUES (?, ?, 'admin', ?)
+        """, (
+            DEFAULT_ADMIN_USERNAME,
+            generate_password_hash(DEFAULT_ADMIN_PASSWORD),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        conn.commit()
+
+    conn.close()
+
+
+seed_default_admin()
 
 
 # -----------------------------
@@ -264,6 +332,193 @@ def queue_entry_eta(conn, entry):
 
 
 # ======================================
+# AUTHENTICATION
+# ======================================
+
+# Endpoints reachable without logging in. Token status/QR/live-status are
+# meant to be shared with patients directly (e.g. via SMS), so they stay
+# public even though everything else requires a login.
+PUBLIC_ENDPOINTS = {
+    "login",
+    "static",
+    "token_status",
+    "token_status_data",
+    "queue_qr",
+}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+
+    if "user_id" not in session:
+        flash("Please log in to continue.", "warning")
+        return redirect(url_for("login", next=request.path))
+
+    g.user = {
+        "id": session["user_id"],
+        "username": session["username"],
+        "role": session["role"],
+    }
+
+    return None
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": getattr(g, "user", None)}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            flash("Please log in to continue.", "warning")
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def roles_required(*allowed_roles):
+    """Restrict a view to users whose role is in allowed_roles. Admins
+    can always access everything regardless of the roles listed."""
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            role = session.get("role")
+            if role != "admin" and role not in allowed_roles:
+                flash("You don't have permission to access that page.", "danger")
+                return redirect(url_for("dashboard"))
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if "user_id" in session:
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        conn = get_connection()
+        user = conn.execute(
+            "SELECT * FROM users WHERE username=?", (username,)
+        ).fetchone()
+        conn.close()
+
+        if user and check_password_hash(user["password_hash"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["role"] = user["role"]
+
+            flash(f"Welcome back, {user['username']}!", "success")
+
+            next_page = request.args.get("next")
+            return redirect(next_page or url_for("dashboard"))
+
+        flash("Invalid username or password.", "danger")
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for("login"))
+
+
+# ======================================
+# USER MANAGEMENT (admin only)
+# ======================================
+
+@app.route("/users")
+@login_required
+@roles_required("admin")
+def user_list():
+
+    conn = get_connection()
+    users = conn.execute(
+        "SELECT id, username, role, created_at FROM users ORDER BY id"
+    ).fetchall()
+    conn.close()
+
+    return render_template("users.html", users=users, roles=ROLES)
+
+
+@app.route("/users/add", methods=["GET", "POST"])
+@login_required
+@roles_required("admin")
+def add_user():
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        role = request.form.get("role", "receptionist")
+
+        if role not in ROLES:
+            role = "receptionist"
+
+        if not username or not password:
+            flash("Username and password are required.", "danger")
+            return render_template("add_user.html", roles=ROLES)
+
+        conn = get_connection()
+
+        existing = conn.execute(
+            "SELECT id FROM users WHERE username=?", (username,)
+        ).fetchone()
+
+        if existing:
+            conn.close()
+            flash("That username is already taken.", "danger")
+            return render_template("add_user.html", roles=ROLES)
+
+        conn.execute("""
+            INSERT INTO users (username, password_hash, role, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (
+            username,
+            generate_password_hash(password),
+            role,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        conn.commit()
+        conn.close()
+
+        flash(f"User '{username}' created successfully!", "success")
+        return redirect(url_for("user_list"))
+
+    return render_template("add_user.html", roles=ROLES)
+
+
+@app.route("/users/delete/<int:id>")
+@login_required
+@roles_required("admin")
+def delete_user(id):
+
+    if id == session.get("user_id"):
+        flash("You can't delete your own account while logged in.", "danger")
+        return redirect(url_for("user_list"))
+
+    conn = get_connection()
+    conn.execute("DELETE FROM users WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+
+    flash("User deleted.", "warning")
+    return redirect(url_for("user_list"))
+
+
+# ======================================
 # Dashboard
 # ======================================
 
@@ -315,6 +570,66 @@ def dashboard():
         waiting_count=waiting_count,
         doctors_available=doctors_available
     )
+
+
+@app.route("/api/dashboard/stats")
+def dashboard_stats():
+    """JSON feed powering the dashboard charts."""
+
+    conn = get_connection()
+
+    # Revenue for each of the last 7 days. Bills don't currently have a
+    # created_at column with a reliable date to group by other than id
+    # order, so we approximate "recent" bills by id if no date exists;
+    # here we use the bills table's rowid creation order as a stand-in
+    # only when a date isn't available. Since bills has no date column,
+    # we report totals by payment status instead, which is always accurate.
+    revenue_by_status = conn.execute("""
+        SELECT
+            CASE WHEN paid=1 THEN 'Paid' ELSE 'Unpaid' END AS label,
+            IFNULL(SUM(total), 0) AS amount
+        FROM bills
+        GROUP BY paid
+    """).fetchall()
+
+    appointment_status = conn.execute("""
+        SELECT status, COUNT(*) AS c
+        FROM appointments
+        GROUP BY status
+    """).fetchall()
+
+    queue_status = conn.execute("""
+        SELECT status, COUNT(*) AS c
+        FROM queue
+        WHERE queue_date = ?
+        GROUP BY status
+    """, (datetime.now().strftime("%Y-%m-%d"),)).fetchall()
+
+    admissions_status = conn.execute("""
+        SELECT
+            CASE WHEN discharged=1 THEN 'Discharged' ELSE 'Currently Admitted' END AS label,
+            COUNT(*) AS c
+        FROM admissions
+        GROUP BY discharged
+    """).fetchall()
+
+    doctors_by_specialization = conn.execute("""
+        SELECT IFNULL(specialization, 'General'), COUNT(*) AS c
+        FROM doctors
+        GROUP BY specialization
+    """).fetchall()
+
+    conn.close()
+
+    return jsonify(
+        revenue_by_status=[{"label": r["label"], "amount": r["amount"]} for r in revenue_by_status],
+        appointment_status=[{"label": r["status"], "count": r["c"]} for r in appointment_status],
+        queue_status=[{"label": r["status"], "count": r["c"]} for r in queue_status],
+        admissions_status=[{"label": r["label"], "count": r["c"]} for r in admissions_status],
+        doctors_by_specialization=[{"label": r[0], "count": r[1]} for r in doctors_by_specialization],
+    )
+
+
 # ======================================
 # PATIENT MANAGEMENT
 # ======================================
@@ -419,6 +734,7 @@ def edit_patient(id):
 
 
 @app.route("/patients/delete/<int:id>")
+@roles_required("receptionist")
 def delete_patient(id):
 
     conn = get_connection()
@@ -463,6 +779,116 @@ def search_patient():
         "patients.html",
         patients=patients
     )
+@app.route("/patients/<int:id>")
+def patient_detail(id):
+
+    conn = get_connection()
+
+    patient = conn.execute(
+        "SELECT * FROM patients WHERE id=?", (id,)
+    ).fetchone()
+
+    if patient is None:
+        conn.close()
+        flash("Patient not found!", "danger")
+        return redirect(url_for("patient_list"))
+
+    records = conn.execute("""
+        SELECT medical_records.*, doctors.name AS doctor_name
+        FROM medical_records
+        LEFT JOIN doctors ON medical_records.doctor_id = doctors.id
+        WHERE patient_id=?
+        ORDER BY visit_date DESC, id DESC
+    """, (id,)).fetchall()
+
+    appointments = conn.execute("""
+        SELECT appointments.*, doctors.name AS doctor_name
+        FROM appointments
+        JOIN doctors ON appointments.doctor_id = doctors.id
+        WHERE patient_id=?
+        ORDER BY appointment_date DESC
+    """, (id,)).fetchall()
+
+    bills = conn.execute("""
+        SELECT * FROM bills WHERE patient_id=? ORDER BY id DESC
+    """, (id,)).fetchall()
+
+    conn.close()
+
+    return render_template(
+        "patient_detail.html",
+        patient=patient,
+        records=records,
+        appointments=appointments,
+        bills=bills
+    )
+
+
+@app.route("/patients/<int:id>/records/add", methods=["GET", "POST"])
+@roles_required("doctor")
+def add_medical_record(id):
+
+    conn = get_connection()
+
+    patient = conn.execute(
+        "SELECT * FROM patients WHERE id=?", (id,)
+    ).fetchone()
+
+    if patient is None:
+        conn.close()
+        flash("Patient not found!", "danger")
+        return redirect(url_for("patient_list"))
+
+    doctors = conn.execute(
+        "SELECT * FROM doctors ORDER BY name"
+    ).fetchall()
+
+    if request.method == "POST":
+
+        conn.execute("""
+            INSERT INTO medical_records
+            (patient_id, doctor_id, visit_date, diagnosis, prescription, notes, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            id,
+            request.form.get("doctor") or None,
+            request.form.get("visit_date") or datetime.now().strftime("%Y-%m-%d"),
+            request.form.get("diagnosis", "").strip(),
+            request.form.get("prescription", "").strip(),
+            request.form.get("notes", "").strip(),
+            session.get("username"),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+        conn.commit()
+        conn.close()
+
+        flash("Medical record added successfully!", "success")
+        return redirect(url_for("patient_detail", id=id))
+
+    conn.close()
+
+    return render_template(
+        "add_medical_record.html",
+        patient=patient,
+        doctors=doctors,
+        today=datetime.now().strftime("%Y-%m-%d")
+    )
+
+
+@app.route("/patients/<int:patient_id>/records/delete/<int:record_id>")
+@roles_required("doctor")
+def delete_medical_record(patient_id, record_id):
+
+    conn = get_connection()
+    conn.execute("DELETE FROM medical_records WHERE id=?", (record_id,))
+    conn.commit()
+    conn.close()
+
+    flash("Medical record removed.", "warning")
+    return redirect(url_for("patient_detail", id=patient_id))
+
+
 # ======================================
 # DOCTOR MANAGEMENT
 # ======================================
@@ -487,6 +913,7 @@ def doctor_list():
 
 
 @app.route("/doctors/add", methods=["GET", "POST"])
+@roles_required("admin")
 def add_doctor():
 
     if request.method == "POST":
@@ -520,6 +947,7 @@ def add_doctor():
 
 
 @app.route("/doctors/edit/<int:id>", methods=["GET", "POST"])
+@roles_required("admin")
 def edit_doctor(id):
 
     conn = get_connection()
@@ -569,6 +997,7 @@ def edit_doctor(id):
 
 
 @app.route("/doctors/delete/<int:id>")
+@roles_required("admin")
 def delete_doctor(id):
 
     conn = get_connection()
@@ -1294,6 +1723,7 @@ def billing_list():
 
 
 @app.route("/billing/create", methods=["GET", "POST"])
+@roles_required("receptionist")
 def create_bill():
 
     conn = get_connection()
@@ -1347,6 +1777,7 @@ def create_bill():
 
 
 @app.route("/billing/pay/<int:id>")
+@roles_required("receptionist")
 def pay_bill(id):
 
     conn = get_connection()
@@ -1366,6 +1797,143 @@ def pay_bill(id):
     )
 
     return redirect(url_for("billing_list"))
+
+
+@app.route("/billing/<int:id>/invoice.pdf")
+def bill_invoice_pdf(id):
+
+    conn = get_connection()
+
+    bill = conn.execute("""
+        SELECT bills.*, patients.name, patients.phone, patients.address
+        FROM bills
+        JOIN patients ON bills.patient_id = patients.id
+        WHERE bills.id=?
+    """, (id,)).fetchone()
+
+    conn.close()
+
+    if bill is None:
+        flash("Bill not found!", "danger")
+        return redirect(url_for("billing_list"))
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=25 * mm, bottomMargin=20 * mm)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph("Hospital Management System", styles["Title"]))
+    elements.append(Paragraph(f"Invoice #{bill['id']}", styles["Heading2"]))
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph(f"<b>Patient:</b> {bill['name']}", styles["Normal"]))
+    if bill["phone"]:
+        elements.append(Paragraph(f"<b>Phone:</b> {bill['phone']}", styles["Normal"]))
+    if bill["address"]:
+        elements.append(Paragraph(f"<b>Address:</b> {bill['address']}", styles["Normal"]))
+    elements.append(Paragraph(
+        f"<b>Date generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["Normal"]
+    ))
+    elements.append(Spacer(1, 16))
+
+    data = [
+        ["Description", "Amount (Rs.)"],
+        ["Consultation Fee", f"{bill['consultation_fee']:.2f}"],
+        ["Medicine Fee", f"{bill['medicine_fee']:.2f}"],
+        ["Room Fee", f"{bill['room_fee']:.2f}"],
+        ["Total", f"{bill['total']:.2f}"],
+        ["Payment Status", "PAID" if bill["paid"] else "UNPAID"],
+    ]
+
+    table = Table(data, colWidths=[120 * mm, 50 * mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2f6fed")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -2), (-1, -1), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    elements.append(table)
+    doc.build(elements)
+
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"invoice_{bill['id']}.pdf"
+    )
+
+
+@app.route("/billing/report.pdf")
+@roles_required("receptionist")
+def billing_report_pdf():
+
+    conn = get_connection()
+
+    bills = conn.execute("""
+        SELECT bills.id, patients.name, total, paid
+        FROM bills
+        JOIN patients ON bills.patient_id = patients.id
+        ORDER BY bills.id
+    """).fetchall()
+
+    total_revenue = conn.execute(
+        "SELECT IFNULL(SUM(total),0) FROM bills WHERE paid=1"
+    ).fetchone()[0]
+
+    total_outstanding = conn.execute(
+        "SELECT IFNULL(SUM(total),0) FROM bills WHERE paid=0"
+    ).fetchone()[0]
+
+    conn.close()
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=25 * mm, bottomMargin=20 * mm)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph("Hospital Management System", styles["Title"]))
+    elements.append(Paragraph("Billing Report", styles["Heading2"]))
+    elements.append(Paragraph(
+        f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["Normal"]
+    ))
+    elements.append(Spacer(1, 14))
+
+    data = [["Bill #", "Patient", "Total (Rs.)", "Status"]]
+    for b in bills:
+        data.append([b["id"], b["name"], f"{b['total']:.2f}", "Paid" if b["paid"] else "Unpaid"])
+
+    table = Table(data, colWidths=[25 * mm, 75 * mm, 35 * mm, 30 * mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2f6fed")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    elements.append(table)
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph(f"<b>Total Revenue Collected:</b> Rs. {total_revenue:.2f}", styles["Normal"]))
+    elements.append(Paragraph(f"<b>Total Outstanding:</b> Rs. {total_outstanding:.2f}", styles["Normal"]))
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="billing_report.pdf"
+    )
 
 
 # ======================================
