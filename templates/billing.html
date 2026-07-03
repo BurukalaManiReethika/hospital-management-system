@@ -2,16 +2,14 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
 
 <h2>Billing</h2>
 
-<a href="/billing/create"
-class="btn btn-success">
-
-Create Bill
-
-</a>
+<div class="d-flex gap-2">
+<a href="{{ url_for('billing_report_pdf') }}" class="btn btn-outline-primary">Download Report (PDF)</a>
+<a href="{{ url_for('create_bill') }}" class="btn btn-success">Create Bill</a>
+</div>
 
 </div>
 
@@ -43,21 +41,25 @@ Create Bill
 
 <td>{{ bill.id }}</td>
 
-<td>{{ bill.patient_name }}</td>
+<td>{{ bill.name }}</td>
 
-<td>₹{{ bill.total }}</td>
+<td>&#8377;{{ bill.total }}</td>
 
-<td>{{ bill.status }}</td>
+<td>{{ "Paid" if bill.paid else "Unpaid" }}</td>
 
 <td>
 
+{% if not bill.paid %}
 <a
-href="/billing/pay/{{ bill.id }}"
+href="{{ url_for('pay_bill', id=bill.id) }}"
 class="btn btn-primary btn-sm">
 
 Mark Paid
 
 </a>
+{% endif %}
+
+<a href="{{ url_for('bill_invoice_pdf', id=bill.id) }}" class="btn btn-outline-secondary btn-sm">Invoice PDF</a>
 
 </td>
 
