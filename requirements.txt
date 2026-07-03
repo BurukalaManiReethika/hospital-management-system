@@ -2,3 +2,4 @@ Flask
 gunicorn
 qrcode[pil]
 twilio
+reportlab
