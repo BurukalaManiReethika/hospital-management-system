@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Add to Queue</h2>
+
+{% if doctors|length == 0 %}
+    <div class="empty-state">
+        <div class="emoji">🩺</div>
+        <p>No doctors are currently marked <strong>Available</strong>. Mark a doctor available first.</p>
+        <a href="{{ url_for('doctor_list') }}" class="btn btn-primary">Go to Doctors</a>
+    </div>
+{% else %}
+
+<div class="form-card">
+
+<form method="POST">
+
+    <div class="mb-3">
+        <label class="form-label">Doctor</label>
+        <select name="doctor" class="form-select" required>
+            {% for doctor in doctors %}
+                <option value="{{ doctor.id }}">
+                    Dr. {{ doctor.name }} ({{ doctor.specialization }}) &mdash; ~{{ doctor.avg_consult_minutes or 15 }} min/patient
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Existing Patient (optional)</label>
+        <select name="patient" class="form-select" id="patient-select">
+            <option value="">-- Walk-in / not registered --</option>
+            {% for patient in patients %}
+                <option value="{{ patient.id }}">{{ patient.name }} ({{ patient.phone }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="walkin-fields">
+        <div class="mb-3">
+            <label class="form-label">Walk-in Name</label>
+            <input type="text" name="walkin_name" class="form-control" placeholder="Patient name">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Walk-in Phone (for SMS token &amp; wait-time updates)</label>
+            <input type="tel" name="walkin_phone" class="form-control" placeholder="+91XXXXXXXXXX">
+        </div>
+    </div>
+
+    <button class="btn btn-primary">Generate Token</button>
+
+</form>
+
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Hide the walk-in fields once an existing patient is selected, since
+// we already have their name/phone on file.
+const select = document.getElementById("patient-select");
+const walkinFields = document.getElementById("walkin-fields");
+
+function syncWalkinVisibility() {
+    walkinFields.style.display = select.value ? "none" : "block";
+}
+
+if (select) {
+    select.addEventListener("change", syncWalkinVisibility);
+    syncWalkinVisibility();
+}
+</script>
+{% endblock %}
