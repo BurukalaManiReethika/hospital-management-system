@@ -31,6 +31,8 @@
             <th>Name</th>
             <th>Specialization</th>
             <th>Phone</th>
+            <th>Avg. Consult Time</th>
+            <th>Availability</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -44,8 +46,21 @@
             <td>{{ doctor.name }}</td>
             <td>{{ doctor.specialization }}</td>
             <td>{{ doctor.phone }}</td>
+            <td>{{ doctor.avg_consult_minutes or 15 }} min</td>
+            <td>
+                {% if doctor.available %}
+                    <span class="pill pill-completed">Available</span>
+                {% else %}
+                    <span class="pill pill-cancelled">Unavailable</span>
+                {% endif %}
+            </td>
 
             <td>
+
+                <a href="/doctors/toggle/{{ doctor.id }}"
+                   class="btn btn-outline-secondary btn-sm">
+                    {% if doctor.available %}Mark Unavailable{% else %}Mark Available{% endif %}
+                </a>
 
                 <a href="/doctors/edit/{{ doctor.id }}"
                    class="btn btn-warning btn-sm">
