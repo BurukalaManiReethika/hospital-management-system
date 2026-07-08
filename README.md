@@ -1,4 +1,4 @@
-# Hospital Management System
+# Hospital Management Systems
 
 A Flask + SQLite web app for running a small clinic or hospital's front
 desk: patients, doctors, appointments, admissions, billing, and a **live
